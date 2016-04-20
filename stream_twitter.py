@@ -1,97 +1,94 @@
-import os
-import tweepy
-import simplejson as json
-import csv
-import pprint
-from utils import flatten_json 
-from kitchen.text.converters import getwriter, to_bytes
 import sys
+from kitchen.text.converters import getwriter, to_bytes
+import os
+from requests_oauthlib import OAuth1
+import requests
+import simplejson as json
+from utils import flatten_json 
 import pandas as pd
 
 # Sets system out to print unicode
 UTF8Writer = getwriter('utf8')
 sys.stdout = UTF8Writer(sys.stdout)
 
-# Reads in all API keys from environment
-try:
-  consumer_key = os.environ['TWITTER_CONSUMER_KEY']
-  consumer_secret = os.environ['TWITTER_CONSUMER_SECRET_KEY']
-  access_token = os.environ['TWITTER_ACCESS_KEY']
-  access_token_secret = os.environ['TWITTER_ACCESS_SECRET_KEY']
-except KeyError:
-  print("Please set twitter authentication environment variables.")
-  raise
 
-# Sets the authentication tokens for twitter
-auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
-auth.set_access_token(access_token, access_token_secret)
+def get_n_tweets(n_tweets,track):
+  """Returns 100 of the most recent tweets from Twitter's API."""
+  auth = get_twitter_auth()
+  return get_twitter_data(auth,n_tweets,track)
 
-api = tweepy.API(auth)
+def get_twitter_auth():
+  '''Returns a Twitter auth object'''
+  # Reads in all API keys from environment
+  try:
+    consumer_key = os.environ['TWITTER_CONSUMER_KEY']
+    consumer_secret = os.environ['TWITTER_CONSUMER_SECRET_KEY']
+    access_token = os.environ['TWITTER_ACCESS_KEY']
+    access_token_secret = os.environ['TWITTER_ACCESS_SECRET_KEY']
+  except KeyError:
+    print("Please set twitter authentication environment variables.")
+    raise
+
+  # create an auth object
+  auth = OAuth1(
+      consumer_key, 
+      consumer_secret,
+      access_token,
+      access_token_secret
+  )
+  return auth 
+
 
 # u'Mon Apr 11 16:57:05 +0000 2016'
+def get_twitter_data(auth,n_tweets,track):
+  """ Pulls some data from twitter's sample streaming API
+  
+  Args:
+      auth: An OAuth1 object
+      n_tweets: Number of tweets in a chunk
+      track: List of keyword terms for filtering
+  Returns: 
+      n_tweets of the most recent 'sample' tweets.
+  """
+
+  # prepare the hdf store
 
 
-# override tweepy.StreamListener to add logic 
-class MyStreamListener(tweepy.StreamListener):
-  def __init__(self,outfile):
-    ''' Assigns string of the raw output filename '''
-    self.outfile = outfile
-    self.tweet_counter = 0
-    self.tweet_cap = 25
+  params = {'track':','.join(track),
+            'language':'en'} 
+  r_stream = requests.get(
+    'https://stream.twitter.com/1.1/statuses/filter.json',
+    auth=auth, stream=True,
+    params=params
+  )
+  counter = 0
+  tweets = [dict()]*n_tweets
+  for line in r_stream.iter_lines():
+    # filter out keep-alive new lines
+    if not line:
+      continue
+    
+    tweet = json.loads(line)
+    
+    #only want substantive tweets
+    if 'text' not in tweet:
+      continue
+    
+    print(tweet['text'])
 
-  def on_data(self, data):
-    '''Overwrites method to output all tweet info to csv format'''
-    # Twitter returns data in JSON format - we need to decode it first
-    decoded = json.loads(data)
+    tweets[counter] = flatten_json(tweet)
 
-    # Flatten the json with appropriate naming 
-    out_dict = flatten_json(decoded)
+    counter +=1
+    if counter % 10 == 0:
+      print(pd.DataFrame.from_records(tweets))
+    if counter >= n_tweets:
+      break
 
-    if self.tweet_counter == 0:
-      write_csv_file(self.outfile, out_dict.keys(), mode='overwrite')
+  print(tweet)
+  print(flatten_json(tweet))
 
-    write_csv_file(self.outfile, out_dict.values())
-
-    self.tweet_counter += 1
-    if self.tweet_counter < self.tweet_cap:
-      return True
-    else:
-      # terminate when appropriate
-      return False 
-
-
-def get_tweets(filters):
-  '''Creates a stream and applies filters'''
-  # creates a stream
-  myStreamListener = MyStreamListener('twitter_records,csv')
-  myStream = tweepy.Stream(auth = api.auth, listener=myStreamListener) 
-
-  # starts a stream
-  myStream.filter(track=filters)
-
-def write_to_database(output_db_name, out_list):
-  '''Convert a list of output strings to ascii and write to output_csv'''
-  modes = {'append':'a','overwrite':'w'}
- 
-  out_list_ascii = [s.encode('ascii', 'replace').replace('\n',' ')
-      .replace(',', '&#0044;') for s in out_list]
-  with open(output_csv, modes.get(mode,'a')) as csvfile:
-    tweetwriter = csv.writer(csvfile, delimiter=',',
-                            quotechar='|', quoting=csv.QUOTE_MINIMAL)
-    tweetwriter.writerow(out_list_ascii)
-
-
-def write_csv_file(output_csv, out_list, mode='append'):
-  '''Convert a list of output strings to ascii and write to output_csv'''
-  modes = {'append':'a','overwrite':'w'}
- 
-  out_list_ascii = [s.encode('ascii', 'replace').replace('\n',' ')
-      .replace(',', '&#0044;') for s in out_list]
-  with open(output_csv, modes.get(mode,'a')) as csvfile:
-    tweetwriter = csv.writer(csvfile, delimiter=',',
-                            quotechar='|', quoting=csv.QUOTE_MINIMAL)
-    tweetwriter.writerow(out_list_ascii)
+  return tweets
 
 
 if __name__ == '__main__':
-  get_tweets(['chicken','Nashville','Trump']) 
+  get_n_tweets(100,['hot chicken','Nashville chicken','KFC','chicken'])
