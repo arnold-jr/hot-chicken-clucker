@@ -6,17 +6,23 @@ import pprint
 from utils import flatten_json 
 from kitchen.text.converters import getwriter, to_bytes
 import sys
+import pandas as pd
 
-
+# Sets system out to print unicode
 UTF8Writer = getwriter('utf8')
 sys.stdout = UTF8Writer(sys.stdout)
 
-# Read in all API keys from environment
-consumer_key = os.environ['TWITTER_CONSUMER_KEY']
-consumer_secret = os.environ['TWITTER_CONSUMER_SECRET_KEY']
-access_token = os.environ['TWITTER_ACCESS_KEY']
-access_token_secret = os.environ['TWITTER_ACCESS_SECRET_KEY']
+# Reads in all API keys from environment
+try:
+  consumer_key = os.environ['TWITTER_CONSUMER_KEY']
+  consumer_secret = os.environ['TWITTER_CONSUMER_SECRET_KEY']
+  access_token = os.environ['TWITTER_ACCESS_KEY']
+  access_token_secret = os.environ['TWITTER_ACCESS_SECRET_KEY']
+except KeyError:
+  print("Please set twitter authentication environment variables.")
+  raise
 
+# Sets the authentication tokens for twitter
 auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
 auth.set_access_token(access_token, access_token_secret)
 
@@ -34,12 +40,13 @@ class MyStreamListener(tweepy.StreamListener):
     self.tweet_cap = 25
 
   def on_data(self, data):
+    '''Overwrites method to output all tweet info to csv format'''
     # Twitter returns data in JSON format - we need to decode it first
     decoded = json.loads(data)
 
     # Flatten the json with appropriate naming 
     out_dict = flatten_json(decoded)
-    print(out_dict.keys())
+
     if self.tweet_counter == 0:
       write_csv_file(self.outfile, out_dict.keys(), mode='overwrite')
 
@@ -56,18 +63,30 @@ class MyStreamListener(tweepy.StreamListener):
 def get_tweets(filters):
   '''Creates a stream and applies filters'''
   # creates a stream
-  myStreamListener = MyStreamListener('streamed_tweets.txt')
+  myStreamListener = MyStreamListener('twitter_records,csv')
   myStream = tweepy.Stream(auth = api.auth, listener=myStreamListener) 
 
   # starts a stream
   myStream.filter(track=filters)
 
-
-def write_csv_file(output_csv, out_list, mode='append'):
+def write_to_database(output_db_name, out_list):
+  '''Convert a list of output strings to ascii and write to output_csv'''
   modes = {'append':'a','overwrite':'w'}
  
-  out_list_ascii = [s.encode('ascii', 'replace').replace('\n',' ') 
-      for s in out_list]
+  out_list_ascii = [s.encode('ascii', 'replace').replace('\n',' ')
+      .replace(',', '&#0044;') for s in out_list]
+  with open(output_csv, modes.get(mode,'a')) as csvfile:
+    tweetwriter = csv.writer(csvfile, delimiter=',',
+                            quotechar='|', quoting=csv.QUOTE_MINIMAL)
+    tweetwriter.writerow(out_list_ascii)
+
+
+def write_csv_file(output_csv, out_list, mode='append'):
+  '''Convert a list of output strings to ascii and write to output_csv'''
+  modes = {'append':'a','overwrite':'w'}
+ 
+  out_list_ascii = [s.encode('ascii', 'replace').replace('\n',' ')
+      .replace(',', '&#0044;') for s in out_list]
   with open(output_csv, modes.get(mode,'a')) as csvfile:
     tweetwriter = csv.writer(csvfile, delimiter=',',
                             quotechar='|', quoting=csv.QUOTE_MINIMAL)
@@ -75,4 +94,4 @@ def write_csv_file(output_csv, out_list, mode='append'):
 
 
 if __name__ == '__main__':
-  get_tweets(['chicken','Nashville']) 
+  get_tweets(['chicken','Nashville','Trump']) 
