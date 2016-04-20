@@ -1,3 +1,4 @@
+from kitchen.text.converters import to_unicode, to_bytes
 
 def flatten_json(y):
   out = {}
@@ -6,13 +7,11 @@ def flatten_json(y):
     if type(x) is dict:
       for a in x:
         flatten(x[a], name + a + '_')
-    elif type(x) is list:
-      i = 0
-      for a in x:
-        flatten(a, name + unicode(i) + '_')
-        i += 1
+    elif type(x) is list and len(x)>0 and type(x[0]) is dict:
+      for i,a in enumerate(x):
+        flatten(a, name + to_bytes(i) + '_')
     else:
-      out[unicode(name[:-1])] = unicode(x)
+      out[to_bytes(name[:-1])] = x
 
   flatten(y)
   

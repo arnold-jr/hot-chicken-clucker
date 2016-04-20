@@ -51,8 +51,7 @@ def get_twitter_data(auth,n_tweets,track):
       n_tweets of the most recent 'sample' tweets.
   """
 
-  # prepare the hdf store
-
+  # prepare the Twitter stream 
 
   params = {'track':','.join(track),
             'language':'en'} 
@@ -61,34 +60,49 @@ def get_twitter_data(auth,n_tweets,track):
     auth=auth, stream=True,
     params=params
   )
-  counter = 0
-  tweets = [dict()]*n_tweets
-  for line in r_stream.iter_lines():
-    # filter out keep-alive new lines
-    if not line:
-      continue
-    
-    tweet = json.loads(line)
-    
-    #only want substantive tweets
-    if 'text' not in tweet:
-      continue
-    
-    print(tweet['text'])
+  
+  # remove store if it already exists
+  path = 'test.h5'
+  if os.path.exists(path):
+    os.remove(path)
 
-    tweets[counter] = flatten_json(tweet)
+  # open the store
+  with pd.get_store(path) as store:
 
-    counter +=1
-    if counter % 10 == 0:
-      print(pd.DataFrame.from_records(tweets))
-    if counter >= n_tweets:
-      break
+    outer_counter = 0
+    counter = 0
+    interval = 10
+    tweets = [dict()]*interval
+    for line in r_stream.iter_lines():
+      # filter out keep-alive new lines
+      if not line:
+        continue
+      
+      tweet = json.loads(line)      
 
-  print(tweet)
-  print(flatten_json(tweet))
+      #only want substantive tweets
+      if 'text' not in tweet:
+        continue
+      
+      #print(tweet['text'])
+
+      tweets[counter] = flatten_json(tweet)
+
+      counter +=1
+      outer_counter += 1
+      if (counter % interval == 0):
+        # store the data and reset the accumulators
+        #store.append('df', pd.DataFrame.from_records(tweets))
+        print(tweet) 
+        print(pd.DataFrame.from_records(tweets))
+        tweets = [dict()]*interval
+        counter = 0
+      
+      if outer_counter >= n_tweets:
+        break
 
   return tweets
 
 
 if __name__ == '__main__':
-  get_n_tweets(100,['hot chicken','Nashville chicken','KFC','chicken'])
+  get_n_tweets(100,['hot chicken','Nashville chicken','KFC','Trump'])
